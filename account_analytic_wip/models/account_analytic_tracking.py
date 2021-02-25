@@ -9,7 +9,7 @@ class AnalyticTrackingItem(models.Model):
     _name = "account.analytic.tracking.item"
     _description = "Cost Tracking Item"
 
-    name = fields.Char(compute="_compute_name")
+    name = fields.Char(compute="_compute_name", store=True)
     date = fields.Date(default=fields.Date.today())
     analytic_id = fields.Many2one(
         "account.analytic.account",
@@ -37,6 +37,14 @@ class AnalyticTrackingItem(models.Model):
         help="Open operations are in progress, no negative variances are computed. "
         "Done operations are completed, negative variances are computed. "
         "Closed operations are done and posting, no more actions to do.",
+    )
+    calculate = fields.Boolean(compute="_compute_calculate", store=True)
+
+    parent_id = fields.Many2one(
+        "account.analytic.tracking.item", "Parent Tracking Item", ondelete="cascade"
+    )
+    child_ids = fields.One2many(
+        "account.analytic.tracking.item", "parent_id", string="Child Tracking Items"
     )
 
     # Planned Amount
@@ -86,19 +94,42 @@ class AnalyticTrackingItem(models.Model):
                 item.product_id.display_name or item.analytic_account_id.display_name
             )
 
+    @api.depends("state", "parent_id", "child_ids")
+    def _compute_calculate(self):
+        for tracking in self:
+            tracking.calculate = tracking.state != "cancel" and (
+                tracking.parent_id or not tracking.child_ids
+            )
+
     @api.depends(
-        "analytic_line_ids.amount", "planned_amount", "accounted_amount", "state"
+        "analytic_line_ids.amount",
+        "planned_amount",
+        "accounted_amount",
+        "state",
+        "child_ids",
     )
     def _compute_actual_amounts(self):
         for item in self:
-            item.actual_amount = -sum(item.analytic_line_ids.mapped("amount")) or 0.0
+            # Actuals
+            if not item.calculate:
+                item.actual_amount = 0
+            else:
+                if item.parent_id:
+                    actuals = item.parent_id.analytic_line_ids.filtered(
+                        lambda x: x.product_id == item.product_id
+                    )
+                else:
+                    actuals = item.analytic_line_ids
+                item.actual_amount = -sum(actuals.mapped("amount")) or 0.0
+
             item.pending_amount = item.actual_amount - item.accounted_amount
             item.wip_actual_amount = min(item.actual_amount, item.planned_amount)
-            if item.state == "cancel":
+
+            if not item.calculate:
                 item.remaining_actual_amount = 0
                 item.variance_actual_amount = 0
                 item.pending_amount = 0
-            if item.state == "open":
+            elif item.state == "open":
                 # Negative variances show in the Remaining column
                 item.remaining_actual_amount = (
                     item.planned_amount - item.wip_actual_amount
@@ -186,7 +217,7 @@ class AnalyticTrackingItem(models.Model):
             )
             self.analytic_line_ids.write({"move_id": consume_move[:1].id})
 
-    def process_wip_and_variance(self):
+    def _process_wip_and_variance(self):
         """
         For each Analytic Tracking Item with a Pending Amount different from zero,
         generate Journal Entries for WIP and excess Variances
@@ -205,6 +236,14 @@ class AnalyticTrackingItem(models.Model):
         # Once Done lines are posted, change them to Closed state
         self.filtered(lambda x: x.state == "done").write({"state": "close"})
 
+    def process_wip_and_variance(self):
+        """
+        Generate Journal Entries for negative variances,
+        when a an Analytic Tracking Item is set to Done
+        """
+        all_tracking = self | self.child_ids
+        all_tracking._process_wip_and_variance()
+
     def _cron_process_wip_and_variance(self):
         items = self.search([("state", "not in", ["close", "cancel"])])
         items.process_wip_and_variance()
@@ -214,5 +253,11 @@ class AnalyticTrackingItem(models.Model):
         Generate Journal Entries for negative variances,
         when a an Analytic Tracking Item is set to Done
         """
-        self.write({"state": "done"})
-        self.process_wip_and_variance()
+        all_tracking = self | self.child_ids
+        all_tracking.write({"state": "done"})
+        all_tracking._process_wip_and_variance()
+
+    def action_cancel(self):
+        # TODO: what to do if there are JEs done?
+        all_tracking = self | self.child_ids
+        all_tracking.write({"state": "cancel"})

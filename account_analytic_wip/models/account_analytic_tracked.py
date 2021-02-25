@@ -10,9 +10,7 @@ class AnalyticTrackedItem(models.AbstractModel):
     _description = "Cost Tracked Mixin"
 
     analytic_tracking_item_id = fields.Many2one(
-        "account.analytic.tracking.item",
-        string="Tracking Item",
-        ondelete="cascade",
+        "account.analytic.tracking.item", string="Tracking Item", ondelete="cascade"
     )
 
     def _prepare_tracking_item_values(self):
@@ -29,29 +27,48 @@ class AnalyticTrackedItem(models.AbstractModel):
         self.ensure_one()
         return {}
 
-    def _get_tracking_planned_amount(self):
-        """ To be extended by inheriting Model """
+    def _get_tracking_planned_qty(self):
+        """
+        To be extended by inheriting Model
+        """
         return 0.0
 
-    def set_tracking_item(self, update_planned=False):
+    def set_tracking_item(self, update_planned=False, force=False):
         """
         Create and set the related Tracking Item, where actuals will be accumulated to.
         The _prepare_tracking_item_values() provides the values used to create it.
 
         If the update_planned flag is set, the planned amount is updated.
-        The _get_tracking_planned_amount() method provides the planned amount.
+        The _get_tracking_planned_qty() method provides the planned quantity.
+
         By default is is not set, and will be zero for new tracking items.
 
         Returns one Tracking Item record or an empty recordset.
         """
         TrackingItem = self.env["account.analytic.tracking.item"]
         for item in self:
-            if not item.analytic_tracking_item_id:
+            if not item.analytic_tracking_item_id or force:
                 vals = item._prepare_tracking_item_values()
                 item.analytic_tracking_item_id = vals and TrackingItem.create(vals)
+                # The Product my be a Cost Type with child Products
+                cost_rules = item.analytic_tracking_item_id.product_id.activity_cost_ids
+                for cost_type in cost_rules.product_id:
+                    child_vals = dict(vals)
+                    child_vals.update(
+                        {
+                            "parent_id": item.analytic_tracking_item_id.id,
+                            "product_id": cost_type.id,
+                        }
+                    )
+                    TrackingItem.create(child_vals)
+
             if update_planned and item.analytic_tracking_item_id:
-                planned_amount = item._get_tracking_planned_amount()
-                item.analytic_tracking_item_id.planned_amount = planned_amount
+                planned_qty = item._get_tracking_planned_qty()
+                tracking_item = item.analytic_tracking_item_id
+                for subitem in tracking_item | tracking_item.child_ids:
+                    qty = planned_qty if subitem.calculate else 0.0
+                    unit_cost = subitem.product_id.standard_price
+                    subitem.planned_amount = qty * unit_cost
 
     @api.model
     def create(self, vals):

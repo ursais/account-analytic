@@ -14,9 +14,10 @@
                 <sheet>
                     <group col="4" colspan="4">
                         <field name="name" />
-                        <field name="analytic_id" />
-                        <field name="product_id" />
                         <field name="date" />
+                        <field name="analytic_id" />
+                        <field name="parent_id" />
+                        <field name="product_id" />
                     </group>
                     <group>
                     <group string="Actuals" name="actuals">
@@ -49,7 +50,14 @@
         <field name="name">account.analytic.tracking.tree</field>
         <field name="model">account.analytic.tracking.item</field>
         <field name="arch" type="xml">
-            <tree string="Tracking List">
+            <tree
+                string="Tracking List"
+                decoration-muted="not calculate"
+                decoration-danger="variance_actual_amount"
+                decoration-info="wip_actual_amount"
+                decoration-bf="pending_amount"
+            >
+                <field name="calculate" invisible="1" />
                 <field name="name" />
                 <field name="analytic_id" />
                 <field name="date" />
