@@ -87,12 +87,10 @@ class AnalyticTrackingItem(models.Model):
         help="Accounted amount incurred above the planned amount limit."
     )
 
-    # FIXME: not searchable!
+    @api.depends("product_id")
     def _compute_name(self):
         for item in self:
-            item.name = (
-                item.product_id.display_name or item.analytic_account_id.display_name
-            )
+            item.name = item.product_id.display_name
 
     @api.depends("state", "parent_id", "child_ids")
     def _compute_calculate(self):
