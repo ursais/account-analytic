@@ -98,8 +98,8 @@ class AnalyticTrackingItem(models.Model):
     )
     # FIXME: remove as is not used
     remaining_actual_amount = fields.Float(
-        compute="_compute_actual_amounts",
-        store=True,
+        # compute="_compute_actual_amounts",
+        # store=True,
         help="Actual amount planned and not yet consumed.",
     )
     pending_amount = fields.Float(
@@ -173,7 +173,7 @@ class AnalyticTrackingItem(models.Model):
             item.wip_actual_amount = wip
             item.difference_actual_amount = dif
             item.variance_actual_amount = var
-            item.remaining_actual_amount = remain
+            # item.remaining_actual_amount = remain
 
     def _prepare_account_move_head(self, journal, move_lines=None, ref=None):
         return {
