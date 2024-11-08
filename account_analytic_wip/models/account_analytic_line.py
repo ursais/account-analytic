@@ -62,5 +62,8 @@ class AnalyticLine(models.Model):
     @api.model
     def create(self, vals):
         new = super().create(vals)
+        active_model = self._context.get("active_model")
+        if 'sale_ref_id' in self._context or active_model in ('stock.picking', 'sale.order'):
+            return new
         new.populate_tracking_items()
         return new
