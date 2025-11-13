@@ -20,6 +20,15 @@ class AccountMove(models.Model):
         help="Tracking item generating this journal entry",
     )
 
+    def _post(self, soft=True):
+        """ OOTB post is creating analytic line and down the line it also creates analytic tracking item.
+            Which is not needed and increasing data. Hence, added context and this will be used in 'create' method of
+            account.analytic.line where analytic tracking will be filtered.
+        """
+        if 'entry' not in self.mapped("move_type"):
+            self = self.with_context(move_type_wip=True)
+        res = super(AccountMove, self)._post(soft)
+        return res
 
 class AccountMoveLine(models.Model):
     _inherit = "account.move.line"
